@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - deployment.yaml
+  - service.yaml
+  # Uncomment when an Ingress controller is installed:
+  # - ingress.yaml
+
+# After GHCR publishes (see docker-publish workflow), optionally remap the image without
+# editing deployment.yaml by uncommenting and fixing owner/repo (must match lowercase ghcr.io URL):
+# images:
+#   - name: portfolio-site
+#     newName: ghcr.io/your-github-user/deveops
+#     newTag: latest

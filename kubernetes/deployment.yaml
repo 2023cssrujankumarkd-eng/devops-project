@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portfolio-web
+  labels:
+    app: portfolio-web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: portfolio-web
+  template:
+    metadata:
+      labels:
+        app: portfolio-web
+    spec:
+      containers:
+        - name: nginx
+          # Local/minikube/kind: build portfolio-site:latest and load into cluster (IfNotPresent).
+          # GHCR (after docker-publish workflow): set image to ghcr.io/<owner>/<repo>:latest
+          # and use imagePullPolicy: Always + imagePullSecrets if the package is private.
+          image: portfolio-site:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

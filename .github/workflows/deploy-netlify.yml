@@ -1,0 +1,35 @@
+# Optional: deploy to Netlify from Actions (manual trigger).
+# Add repo secrets NETLIFY_AUTH_TOKEN and NETLIFY_SITE_ID, then run this workflow
+# from the Actions tab. To deploy on every push, add:
+#   push:
+#     branches: [main]
+
+name: Deploy to Netlify
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_message:
+        description: Message shown in the Netlify deploy log (optional)
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  netlify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to Netlify
+        uses: nwtgck/actions-netlify@v3.0
+        with:
+          publish-dir: .
+          production-branch: main
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: ${{ github.event.inputs.deploy_message != '' && github.event.inputs.deploy_message || format('workflow_dispatch · {0}', github.sha) }}
+          enable-pull-request-comment: false
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
