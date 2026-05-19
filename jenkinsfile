@@ -1,149 +1,60 @@
-// Jenkins declarative pipeline — portfolio static site + Docker
-//
-// Jenkins setup (one-time):
-//   1. Install plugins: git, workflow-aggregator, docker-workflow, credentials-binding
-//   2. Manage Jenkins → Tools → add "Docker" or ensure `docker` is on the agent PATH
-//   3. Optional GHCR push: Credentials → Username with password
-//        ID: ghcr-credentials
-//        Username: your GitHub username
-//        Password: GitHub PAT with read:packages, write:packages
-//   4. New Pipeline job → Pipeline script from SCM → point at this repo / Jenkinsfile
-//
-// Local Jenkins: see jenkins/docker-compose.yml
-
 pipeline {
     agent any
 
-    options {
-        buildDiscarder(logRotator(numToKeepStr: '15'))
-        timeout(time: 20, unit: 'MINUTES')
-        timestamps()
-        disableConcurrentBuilds()
-    }
-
-    parameters {
-        booleanParam(
-            name: 'PUSH_TO_GHCR',
-            defaultValue: false,
-            description: 'Push image to GitHub Container Registry (requires ghcr-credentials)'
-        )
-        string(
-            name: 'GHCR_IMAGE',
-            defaultValue: 'ghcr.io/2023cssrujankumarkd-eng/devops-',
-            description: 'Full image name without tag (lowercase owner/repo)'
-        )
-        booleanParam(
-            name: 'PUSH_LATEST_TAG',
-            defaultValue: true,
-            description: 'Also tag and push :latest when pushing to GHCR'
-        )
-    }
-
     environment {
-        IMAGE_LOCAL = "portfolio-site"
-        IMAGE_TAG = "${env.BUILD_NUMBER}"
-        CONTAINER_NAME = "portfolio-jenkins-${env.BUILD_NUMBER}"
-        GIT_SHORT = ''
+        IMAGE_NAME = "portfolio-site"
+        CONTAINER_NAME = "portfolio-container"
     }
 
     stages {
-        stage('Checkout') {
+
+        stage('Clone Repository') {
             steps {
                 checkout scm
-                script {
-                    env.GIT_SHORT = sh(
-                        script: 'git rev-parse --short HEAD 2>/dev/null || echo local',
-                        returnStdout: true
-                    ).trim()
-                }
             }
         }
 
-        stage('Validate site files') {
+        stage('Build Docker Image') {
+            steps {
+                sh 'docker build -t $IMAGE_NAME .'
+            }
+        }
+
+        stage('Stop Old Container') {
             steps {
                 sh '''
-                    set -e
-                    test -f index.html
-                    test -f css/styles.css
-                    test -f js/main.js
-                    test -f Dockerfile
-                    echo "Static site files OK"
+                docker stop $CONTAINER_NAME || true
+                docker rm $CONTAINER_NAME || true
                 '''
             }
         }
 
-        stage('Build Docker image') {
+        stage('Run Docker Container') {
             steps {
-                sh """
-                    set -e
-                    docker build -t ${IMAGE_LOCAL}:${IMAGE_TAG} -t ${IMAGE_LOCAL}:git-${GIT_SHORT} .
-                    docker images ${IMAGE_LOCAL}
-                """
+                sh '''
+                docker run -d \
+                --name $CONTAINER_NAME \
+                -p 8081:80 \
+                $IMAGE_NAME
+                '''
             }
         }
 
-        stage('Smoke test container') {
+        stage('Check Running Containers') {
             steps {
-                sh """
-                    set -e
-                    docker rm -f ${CONTAINER_NAME} 2>/dev/null || true
-                    docker run -d --name ${CONTAINER_NAME} ${IMAGE_LOCAL}:${IMAGE_TAG}
-                    sleep 3
-                    docker exec ${CONTAINER_NAME} wget -q -O - http://127.0.0.1/ | grep -q 'Portfolio'
-                    echo "Smoke test passed"
-                """
-            }
-        }
-
-        stage('Push to GHCR') {
-            when {
-                expression { return params.PUSH_TO_GHCR }
-            }
-            steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId: 'ghcr-credentials',
-                        usernameVariable: 'GHCR_USER',
-                        passwordVariable: 'GHCR_TOKEN'
-                    )
-                ]) {
-                    sh """
-                        set -e
-                        echo "\$GHCR_TOKEN" | docker login ghcr.io -u "\$GHCR_USER" --password-stdin
-                        docker tag ${IMAGE_LOCAL}:${IMAGE_TAG} ${params.GHCR_IMAGE}:${IMAGE_TAG}
-                        docker tag ${IMAGE_LOCAL}:${IMAGE_TAG} ${params.GHCR_IMAGE}:git-${GIT_SHORT}
-                        docker push ${params.GHCR_IMAGE}:${IMAGE_TAG}
-                        docker push ${params.GHCR_IMAGE}:git-${GIT_SHORT}
-                    """
-                    script {
-                        if (params.PUSH_LATEST_TAG) {
-                            sh """
-                                set -e
-                                docker tag ${IMAGE_LOCAL}:${IMAGE_TAG} ${params.GHCR_IMAGE}:latest
-                                docker push ${params.GHCR_IMAGE}:latest
-                            """
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Archive static artifact') {
-            steps {
-                archiveArtifacts artifacts: 'index.html,css/**,js/**', fingerprint: true, allowEmptyArchive: false
+                sh 'docker ps'
             }
         }
     }
 
     post {
-        always {
-            sh "docker rm -f ${CONTAINER_NAME} 2>/dev/null || true"
-        }
+
         success {
-            echo "Pipeline OK — image ${IMAGE_LOCAL}:${IMAGE_TAG} (git-${GIT_SHORT})"
+            echo 'Portfolio website deployed successfully!'
         }
+
         failure {
-            echo 'Pipeline failed — check stage logs above.'
+            echo 'Pipeline failed!'
         }
     }
 }
